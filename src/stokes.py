@@ -5,72 +5,120 @@ import basix.ufl as bufl
 import ufl
 from mpi4py import MPI
 from petsc4py import PETSc
-from nonlinear import NonlinearPDE_SNESProblem
-from Rheology import sachs
+import nonlinear
+import specfabufl
+
+def ε(u):
+    return ufl.sym(ufl.grad(u))
 
 
+class solver:
+    def __init__(self, msh, bc_funcs, params, rheo, fabric):
+        self.msh = msh
+        self.bc_funcs = bc_funcs
+        self.params = params
+        self.rheo = rheo
+        self.fabric = fabric
 
-def solve_no_damage(mesh, bc_func, material, dt, u=None, p=None):
+        f_el = bufl.element("Lagrange", self.msh.basix_cell(), 1, shape=(specfabufl.nlm_len_from_L(params.L)), dtype=default_real_type)
+        
+        self.F = fem.functionspace(self.msh, f_el)
 
-    C1 = material.C1; C2 = material.C2
-    ρw = material.ρw; ρi = material.ρi
+        P2_el = bufl.element("Lagrange", self.msh.basix_cell(), 2, shape=(self.msh.geometry.dim,), dtype=default_real_type)
+        P1_el = bufl.element("Lagrange", self.msh.basix_cell(), 1, dtype=default_real_type)
 
-    P2_el = bufl.element("Lagrange", mesh.basix_cell(), 2, shape=(mesh.geometry.dim,), dtype=default_real_type)
-    P1_el = bufl.element("Lagrange", mesh.basix_cell(), 1, dtype=default_real_type)
+        self.P2 = fem.functionspace(self.msh, P2_el)
+        self.P1 = fem.functionspace(self.msh, P1_el)
 
-    P2 = fem.functionspace(mesh, P2_el)
-    P1 = fem.functionspace(mesh, P1_el)
+        self.Z = fem.FunctionSpace(msh, ("Lagrange", 1))
 
-    bcs = bc_func(P2)
+        self.bcs_u = bc_funcs[0](self.P2)
+        self.bcs_f = bc_funcs[1](self.V_d)
 
-    if u is None:
-        u = fem.Function(P2)
-    if p is None:
-        p = fem.Function(P1)
+        self.u = fem.Function(self.P2)
+        self.f = fem.Function(self.F)
 
-    du, dp = ufl.TrialFunction(P2), ufl.TrialFunction(P1)
-    v, q = ufl.TestFunction(P2), ufl.TestFunction(P1)
+    def solve_stokes(self):
+        du, dp = ufl.TrialFunction(self.P2), ufl.TrialFunction(self.P1)
+        v, q = ufl.TestFunction(self.P2), ufl.TestFunction(self.P1)
 
-    def η(u):
-        return viscosity(u, material.n, 1.e-8)
+        με = lambda u: self.rheo.με(ε(u), self.f)
+        η = lambda u: self.rheo.η(ε(u), self.f)
+        
+        n = ufl.FacetNormal(self.msh)
+        ds = ufl.Measure("ds", domain=self.msh)
+
+        f = fem.Constant(self.msh, default_scalar_type((
+            self.params.ρ*self.params.g*ufl.sin(self.params.slope),
+            -self.params.ρ*self.params.g*ufl.cos(self.params.slope))))
+        
     
-    def τ(u,μ):
-        return ufl.as_matrix(μ[ufl.i,ufl.j,ufl.k,ufl.l]*ε(u)[ufl.k,ufl.l],(ufl.i,ufl.j))
+        F = [(η(self.u)*ufl.inner(με(self.u), ε(v)) \
+        - ufl.inner(self.p, ufl.div(v)) \
+        - ufl.inner(f, v) )*ufl.dx,
+        - ufl.inner(ufl.div(self.u), q) * ufl.dx ]
+
+        J = get_jacobian(F,self.u,self.p,du,dp)
+        P = get_preconditioner(J, self.u, dp, q, η)
+
+        snes, x = nonlinear.nested_solve(F, J, self.u, self.p, self.bcs_u, P)
+        # snes, x = nonlinear.block_solve(F, J, P, self.u, self.p, self.bcs_u, self.P2, self.P1)
+
+        snes.solve(None, x)
+        assert snes.getKSP().getConvergedReason() > 0
+
+        self.u.x.scatter_forward()
+        self.p.x.scatter_forward()
+
+
+    def solve_fabric(self, k = 1e-4):
+
+
+        f = ufl.TrialFunction(self.F)
+        g = ufl.TestFunction(self.F)
+
+        M = self.fabric.M(self.u, self.f, self.rheo)
+
+        a = ( ufl.inner(f,g) \
+            + self.dt*ufl.inner(ufl.inner(self.uh, ufl.grad(f)), g) \
+            + self.dt*k*ufl.inner(ufl.grad(f), ufl.grad(g)) \
+            - self.dt*ufl.dot(ufl.dot(M,f),g)    )*ufl.dx
+        
+        L = ufl.inner(self.f,g)*ufl.dx
+
+        problem = fem.LinearProblem(a, L, bcs=self.bcs_f, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
+
+        self.f = problem.solve()
+
+    def move_mesh(self, k = 1e-4):
+
+        D = self.msh.geometry.dim
+
+        z = ufl.TrialFunction(self.Z)
+        v = ufl.TestFunction(self.Z)
+
+        us = self.u[:D-1]; w = self.u[-1]
+
+        grad_s = lambda u: ufl.as_vector([ufl.grad(u)[i] for i in range(D-1)])
+
+        ds = ufl.Measure("ds", domain=self.msh)
+
+        a = (ufl.inner(z, v) + self.dt*ufl.inner(us, grad_s(z)))*ds \
+            + k*ufl.inner(ufl.grad(z), ufl.grad(v))*ufl.dx
     
+        L = ufl.inner(self.dt*(w+self.params.acc), v)*ds
 
-    if mesh.geometry.dim == 2:
-        f = fem.Constant(mesh, default_scalar_type((0, -ρi/ρw)))
-    else:
-        f = fem.Constant(mesh, default_scalar_type((0, 0, -ρi/ρw)))
+        problem = fem.LinearProblem(a, L, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
+        dz = problem.solve()
 
-
-    # Outward-pointing unit normal to the boundary  
-    n = ufl.FacetNormal(mesh)           
-
-    # Surface measure
-    ds = ufl.Measure("ds", domain=mesh)
-
-    # Water pressure
-    # pw = water_pressure(mesh,vh,material)
-    def pw(u):
-        return water_pressure(mesh,u*dt)
-    # pw = water_pressure_static(mesh)
+        self.msh.geometry.x[:,D-1] += self.params.dt*dz.x.array
 
 
-    
-    F = [(1/C2)*η(u)*ufl.inner(τ(u,μ), ε(v)) * ufl.dx \
-        - ufl.inner(p, ufl.div(v)) * ufl.dx \
-        - C1 * ufl.inner(f, v) * ufl.dx \
-        + C1*pw(u)*ufl.inner(n, v) * ds,
-        - ufl.inner(ufl.div(u), q) * ufl.dx ]
-    
 
-    J = get_jacobian(F,u,p,du,dp)
-    P = get_preconditioner(J, u, dp, q, η) 
-    
-    
-    return _nested_solve(F, J, P, u, p, bcs)
-    
+
+
+
+
 
 def get_jacobian(F,u,p,du,dp):
     return [[ufl.derivative(F[0], u, du), ufl.derivative(F[0], p, dp)],
@@ -79,62 +127,3 @@ def get_jacobian(F,u,p,du,dp):
 def get_preconditioner(J, u, dp, q, η):
     return [[J[0][0], None],
             [None, (2 * η(u))**-1 * dp * q * ufl.dx]]
-
-
-def _nested_solve(F, J, P, u, p, bcs):
-    F, J, P = fem.form(F), fem.form(J), fem.form(P)
-
-
-    Jmat = fem.petsc.create_matrix_nest(J)
-    Pmat = fem.petsc.create_matrix_nest(P)
-    Fvec = fem.petsc.create_vector_nest(F)
-
-    snes = PETSc.SNES().create(MPI.COMM_WORLD)
-    snes.setTolerances(rtol=1.0e-15, max_it=10)
-    nested_IS = Jmat.getNestISs()
-    snes.getKSP().setType("minres")
-    snes.getKSP().setTolerances(rtol=1e-12)
-    snes.getKSP().getPC().setType("fieldsplit")
-    snes.getKSP().getPC().setFieldSplitIS(["u", nested_IS[0][0]], ["p", nested_IS[1][1]])
-
-    snes.getKSP().getPC().setFieldSplitType(
-                PETSc.PC.CompositeType.ADDITIVE)
-
-    ksp_u, ksp_p = snes.getKSP().getPC().getFieldSplitSubKSP()
-    ksp_u.setType("preonly")
-    ksp_u.getPC().setType("hypre")
-    ksp_p.setType("preonly")
-    ksp_p.getPC().setType("hypre")
-
-    problem = NonlinearPDE_SNESProblem(F, J, [u, p], bcs=bcs, P=P)
-    snes.setFunction(problem.F_nest, Fvec)
-    snes.setJacobian(problem.J_nest, J=Jmat, P=Pmat)
-
-    # snes.setDM(nullspace)
-
-    
-
-    x = fem.petsc.create_vector_nest(F)
-
-    assert x.getType() == "nest"
-    for x_soln_pair in zip(x.getNestSubVecs(), (u, p)):
-        x_sub, soln_sub = x_soln_pair
-        soln_sub.x.petsc_vec.ghostUpdate(
-            addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD
-        )
-        soln_sub.x.petsc_vec.copy(result=x_sub)
-        x_sub.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
-
-    # Solve nonlinear problem
-    snes.solve(None, x)
-    assert snes.getKSP().getConvergedReason() > 0
-
-    u.x.scatter_forward()
-    p.x.scatter_forward()
-
-    return u, p
-
-
-
-
-

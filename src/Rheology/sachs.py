@@ -3,10 +3,9 @@ import mandel
 from ufl import i,j,k,l
 
 
-def sachs_τhat(ε,a2,a4,Ecc,Eca):
+def με(ε,a2,a4,Ecc,Eca):
     μ = sachs_visc(a2,a4,Ecc,Eca)
-    ι = Eca/(0.4*Eca + 0.2*Ecc + 0.4)
-    return ι*(ufl.as_tensor(μ[i,j,k,l]*ε[k,l], (i,j)))
+    return ufl.as_tensor(μ[i,j,k,l]*ε[k,l], (i,j))
 
     
 

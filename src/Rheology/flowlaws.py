@@ -1,10 +1,10 @@
-from sachs import sachs_τhat
 import ufl
 import caffe
 import rathmann
-
+import sachs
+from ..orientationtensors import a2calc, a4calc
 class Rheology:
-    def __init__(self, Ecc, Eca, n, B, flowlaw='Glen', α=0.0125, Emin = 0.1, Emax = 10.0):
+    def __init__(self, flowlaw = 'Glen', Ecc=1.0, Eca=100, n=3.0, B=100, α=0.0125, Emin = 0.1, Emax = 10.0):
         self.n = n
         self.B = B
         self.Ecc = Ecc
@@ -14,28 +14,52 @@ class Rheology:
         self.Emin = Emin
         self.Emax = Emax
 
-    def η(self, ε):
-        eps = 1.e-8
-        n = self.n
-        return self.B^(1/n) * (ufl.inner(ε, ε) / 2 + eps)**((1 - n) / (2 * n))
-
-    def τ(self, ε, f):
+    def η(self, ε, f):
         a2 = a2calc(f)
         a4 = a4calc(f)
 
-        if self.flowlaw == 'Glen':
-            return self.η(ε) * ε
-        
-        elif self.flowlaw == 'Sachs':
-            return self.η(ε)*sachs_τhat(ε, a2, a4, self.Ecc, self.Eca)
-        
+        eps = 1.e-8
+        n = self.n
+        if self.flow == 'Rathmann':
+            η, με = rathmann.orthotropic_full(ε, a2, a4, self.Ecc, self.Eca, self.α, self.n)
+            return self.B^(1/n)*η
         elif self.flowlaw == 'CAFFE':
             E = caffe.Enhancement(caffe.Deformability(a2, a4, ε), self.Emin, self.Emax)
-            return self.η(ε)*E**(-1/self.n)*ε
+            return self.B^(1/n) * (ufl.inner(ε, ε) / 2 + eps)**((1 - n) / (2 * n)) * E**(-1/n)
+        else:
+            return self.B^(1/n) * (ufl.inner(ε, ε) / 2 + eps)**((1 - n) / (2 * n))
+
+    def με(self, ε, f):
+        a2 = a2calc(f)
+        a4 = a4calc(f)
+
+
+        if self.flowlaw == 'Sachs':
+            return sachs.με(ε, a2, a4, self.Ecc, self.Eca)
+        
         
         elif self.flowlaw == 'Rathmann':
             η, με = rathmann.orthotropic_full(ε, a2, a4, self.Ecc, self.Eca, self.α, self.n)
-            return η*με
+            return με
+        
+        else:
+            return ε
+        
+    def τhat(self, ε, f):
+        a2 = a2calc(f)
+        a4 = a4calc(f)
+
+        if self.flowlaw == 'Sachs':
+            return (self.Eca/(0.4*self.Eca + 0.2*self.Ecc + 0.4))*sachs.με(ε, a2, a4, self.Ecc, self.Eca)
+        
+
+        elif self.flowlaw == 'CAFFE':
+            E = caffe.Enhancement(caffe.Deformability(a2, a4, ε), self.Emin, self.Emax)
+            return E**(-1/self.n)*ε
+        
+        
+        else:
+            return ε
         
 
     

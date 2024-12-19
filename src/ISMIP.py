@@ -1,34 +1,67 @@
+#%%
 import numpy as np
-import stokessolver
-from dolfinx.mesh import CellType, create_rectangle, locate_entities_boundary
+from dolfinx import mesh, fem, plot
 from mpi4py import MPI
+from petsc4py import PETSc
+import ufl
+import stokes
+from Rheology import flowlaws
+from params import params
+from specfabufl import fabric
 
 
 
-# ## Define the mesh and boundary conditions
+L = 5e3 # length of 1 wavelength
+H = 1e3
+repetitions = 4
+Lmax = 4
+
+nz = 10
+nx = int(nz*L*repetitions/H)
+
+def top(x):
+    return H
+
+def bottom(x):
+    return 0.5*H*ufl.sin(x[0]*2*ufl.pi/L)
 
 
-def createStructuredMesh(xvec, bottomsurf, topsurf, Nx, Nz):
-    hl = Nx-1 # Number of horizontal layers
-    vl = Nz-1 # Number of vertical layers
-    # generate mesh on unitsquare
-    mesh = create_rectangle(
-        MPI.COMM_WORLD, [np.array([0, 0]), np.array([1, 1])], [Nx, Nz], CellType.triangle
-    )
+msh = mesh.create_rectangle(MPI.COMM_WORLD,
+                            [np.array([0, 0]), np.array([L*repetitions, 1])],
+                            [nx,nz], mesh.CellType.quadrilateral)
+
+
+def warp_mesh(msh,top,bot):
+    x = msh.geometry.x[:,0]
+    z = msh.geometry.x[:,1]
+    zs = top(x)
+    zb = bot(x)
+    znew = zb + z*(zs-zb)
+    xynewcoor = np.array([x, znew]).transpose()
+    msh.geometry.x[:] = xynewcoor
+
+
+warp_mesh(msh,top,bottom)
+
+
+
+par = params(dt = 1.0)
+rheo = flowlaws.Rheology()
+fab = fabric(4,0.3,1.0,0.0,0.0)
+
+bc_u = lambda V: [fem.DirichletBC(V, ufl.as_vector([0,0]), lambda x: np.isclose(x[0],0.0))]
+bc_f = lambda V: []
+
+model = stokes.solver(msh, [bc_u,bc_f], par, rheo, fab)
+
+model.solve_stokes()
+
+#%%
+
+
+
+
+
+
     
-    # Extract x and y coordinates from mesh
-    x = mesh.geometry.x[:, 0]
-    y = mesh.geometry.x[:, 1]
-    x0 = min(xvec)
-    x1 = max(xvec)
-    
-    # Map coordinates on unit square to the computational domain
-    xnew = x0 + x*(x1-x0)
-    zs = np.interp(xnew, xvec, topsurf)
-    zb = np.interp(xnew, xvec, bottomsurf)
-    ynew = zb + y*(zs-zb)
-    
-    xynewcoor = np.array([xnew, ynew]).transpose()
-    mesh.coordinates()[:] = xynewcoor
-    
-    return mesh
+
