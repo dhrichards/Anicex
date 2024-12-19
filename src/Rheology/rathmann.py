@@ -1,7 +1,6 @@
 import ufl
 from invariants import eigenstate
-import sachs
-import mandel
+from Rheology import mandel, sachs
 
 
 

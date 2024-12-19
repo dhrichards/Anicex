@@ -1,10 +1,8 @@
 import ufl
-import caffe
-import rathmann
-import sachs
-from ..orientationtensors import a2calc, a4calc
+from Rheology import caffe, rathmann, sachs
+from orientationtensors import a2calc, a4calc
 class Rheology:
-    def __init__(self, flowlaw = 'Glen', Ecc=1.0, Eca=100, n=3.0, B=100, α=0.0125, Emin = 0.1, Emax = 10.0):
+    def __init__(self, flowlaw = 'Glen', Ecc=1.0, Eca=100.0, n=3.0, B=100.0, α=0.0125, Emin = 0.1, Emax = 10.0):
         self.n = n
         self.B = B
         self.Ecc = Ecc
@@ -20,14 +18,14 @@ class Rheology:
 
         eps = 1.e-8
         n = self.n
-        if self.flow == 'Rathmann':
+        if self.flowlaw == 'Rathmann':
             η, με = rathmann.orthotropic_full(ε, a2, a4, self.Ecc, self.Eca, self.α, self.n)
             return self.B^(1/n)*η
         elif self.flowlaw == 'CAFFE':
             E = caffe.Enhancement(caffe.Deformability(a2, a4, ε), self.Emin, self.Emax)
-            return self.B^(1/n) * (ufl.inner(ε, ε) / 2 + eps)**((1 - n) / (2 * n)) * E**(-1/n)
+            return self.B**(1/n) * (ufl.inner(ε, ε) / 2 + eps)**((1 - n) / (2 * n)) * E**(-1/n)
         else:
-            return self.B^(1/n) * (ufl.inner(ε, ε) / 2 + eps)**((1 - n) / (2 * n))
+            return self.B**(1/n) * (ufl.inner(ε, ε) / 2 + eps)**((1 - n) / (2 * n))
 
     def με(self, ε, f):
         a2 = a2calc(f)

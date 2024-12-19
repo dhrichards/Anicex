@@ -1,4 +1,4 @@
-from ufl import sqrt, pi, as_tensor, as_vector, I
+from ufl import sqrt, pi, as_tensor, as_vector
 from gauntbody import GC, GCm, GC_m1, GC_p1
 import ufl
 import numpy as np
@@ -137,11 +137,11 @@ def quad_rr(M):
     """
     fsq = sqrt(2 * pi / 15)
     return as_vector([
-        fsq * (M[0, 0] - M[1, 1] + 2 * I * M[0, 1]),
-        2 * fsq * (M[0, 2] + I * M[1, 2]),
+        fsq * (M[0, 0] - M[1, 1] + 2 * 1j * M[0, 1]),
+        2 * fsq * (M[0, 2] + 1j * M[1, 2]),
         -2 / 3 * sqrt(pi / 5) * (M[0, 0] + M[1, 1] - 2 * M[2, 2]),
-        -2 * fsq * (M[0, 2] - I * M[1, 2]),
-        fsq * (M[0, 0] - M[1, 1] - 2 * I * M[0, 1])
+        -2 * fsq * (M[0, 2] - 1j * M[1, 2]),
+        fsq * (M[0, 0] - M[1, 1] - 2 * 1j * M[0, 1])
     ])
 
 def quad_tp(M):
@@ -156,9 +156,9 @@ def quad_tp(M):
     """
     fsq = sqrt(2 * pi / 3)
     return fsq * as_vector([
-        M[1, 2] - I * M[0, 2],
+        M[1, 2] - 1j * M[0, 2],
         sqrt(2) * M[0, 1],
-        -M[1, 2] - I * M[0, 2]
+        -M[1, 2] - 1j * M[0, 2]
     ])
 
 

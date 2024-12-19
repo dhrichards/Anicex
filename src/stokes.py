@@ -20,7 +20,7 @@ class solver:
         self.rheo = rheo
         self.fabric = fabric
 
-        f_el = bufl.element("Lagrange", self.msh.basix_cell(), 1, shape=(specfabufl.nlm_len_from_L(params.L)), dtype=default_real_type)
+        f_el = bufl.element("Lagrange", self.msh.basix_cell(), 1, shape=(specfabufl.nlm_len_from_L(params.L),), dtype=default_real_type)
         
         self.F = fem.functionspace(self.msh, f_el)
 
@@ -30,12 +30,13 @@ class solver:
         self.P2 = fem.functionspace(self.msh, P2_el)
         self.P1 = fem.functionspace(self.msh, P1_el)
 
-        self.Z = fem.FunctionSpace(msh, ("Lagrange", 1))
+        self.Z = fem.functionspace(msh, ("Lagrange", 1))
 
         self.bcs_u = bc_funcs[0](self.P2)
-        self.bcs_f = bc_funcs[1](self.V_d)
+        self.bcs_f = bc_funcs[1](self.F)
 
         self.u = fem.Function(self.P2)
+        self.p = fem.Function(self.P1)
         self.f = fem.Function(self.F)
 
     def solve_stokes(self):
@@ -49,8 +50,8 @@ class solver:
         ds = ufl.Measure("ds", domain=self.msh)
 
         f = fem.Constant(self.msh, default_scalar_type((
-            self.params.ρ*self.params.g*ufl.sin(self.params.slope),
-            -self.params.ρ*self.params.g*ufl.cos(self.params.slope))))
+            self.params.ρ*self.params.g*ufl.sin(np.deg2rad(self.params.slope)),
+            -self.params.ρ*self.params.g*ufl.cos(np.deg2rad(self.params.slope)))))
         
     
         F = [(η(self.u)*ufl.inner(με(self.u), ε(v)) \

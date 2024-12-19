@@ -1,5 +1,5 @@
 import ufl
-import mandel
+from Rheology import mandel
 from ufl import i,j,k,l
 
 
