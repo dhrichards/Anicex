@@ -1,8 +1,12 @@
 from ufl import sqrt, pi, as_tensor, as_vector
-from gauntbody import GC, GCm, GC_m1, GC_p1
+import gauntbody as gb
 import ufl
 import numpy as np
 
+GC = ufl.as_tensor(gb.GC[:,:,:6])
+GCm = ufl.as_tensor(gb.GCm[:,:,:6])
+GC_m1 = ufl.as_tensor(gb.GC_m1[:,:,:6])
+GC_p1 = ufl.as_tensor(gb.GC_p1[:,:,:6])
 
 class fabric:
     def __init__(self,L,λ,αD,αS,β):
@@ -27,10 +31,18 @@ class fabric:
         return ufl.sqrt(0.5*ufl.inner(self.D(u),self.D(u)))
     
     def C(self,u,f,rheo):
-        return self.αD*self.D(u) + self.αS*rheo.τhat(u,f)
+        return self.αD*self.D(u) + self.αS*rheo.τhat(self.D(u),f)
     
     def M(self,u,f,rheo):
+        
         return makeM(self.W(u),self.C(u,f,rheo),self.SR(u),self.λ,self.L)
+    
+
+    def f0(self,x):
+        vals = np.zeros((self.nlm_len, x.shape[1]), dtype=np.complex128)
+        vals[0] = 1.0/np.sqrt(4*np.pi)
+
+        return vals
     
 
     
@@ -43,10 +55,11 @@ def nlm_len_from_L(Lmax):
 
 
 def get_lm(Lmax):
-    for l in range(Lmax+1):
-        for m in range(-l,l+1):
-            l.append(l)
-            m.append(m)
+    l = []; m = []
+    for ll in range(0,Lmax+1,2):
+        for mm in range(-ll,ll+1):
+            l.append(ll)
+            m.append(mm)
     return np.array(l),np.array(m)
 
 
@@ -70,7 +83,7 @@ def M_LROT(Lmax,C,W,ι):
     gn_rot = as_vector([-1j*6/sqrt(6)*qo[0],0,0,0,0,0])
     gp_rot = as_vector([1j*6/sqrt(6)*qo[2],0,0,0,0,0])
 
-    g0_Tay = as_vector(3*[0,qe[0],qe[1],qe[2],qe[3],qe[4]])
+    g0_Tay = as_vector([0,3*qe[0],3*qe[1],3*qe[2],3*qe[3],3*qe[4]])
     gz_Tay = as_vector([0,-qe[0],0,0,0,qe[4]])
     gn_Tay = as_vector([sqrt(5/6)*qe[1],0,qe[0],sqrt(2/3)*qe[1],sqrt(3/2)*qe[2],2*qe[3]])
     gp_Tay = as_vector([sqrt(5/6)*qe[3],2*qe[1],sqrt(3/2)*qe[2],sqrt(2/3)*qe[3],qe[4],0])
@@ -83,31 +96,32 @@ def M_LROT(Lmax,C,W,ι):
 
     nlm_len = nlm_len_from_L(Lmax)
     
-    
-    M_LROT = as_tensor(
-        [
-            [
-                -(
-                    sum(GC[i, j, k] * g0[k] for k in range(6)) +
-                    sum(GCm[i, j, k] * gz[k] for k in range(6)) +
-                    sum(GC_m1[i, j, k] * gn[k] for k in range(6)) +
-                    sum(GC_p1[i, j, k] * gp[k] for k in range(6))
-                )
-                for j in range(nlm_len)
-            ]
-            for i in range(nlm_len)
-        ]
-    )
+    i,j,k = ufl.indices(3)
+    # M_LROT = as_tensor(
+    #     [
+    #         [
+    #             -(
+    #                 sum(GC[i, j, k] * g0[k] for k in range(6)) +
+    #                 sum(GCm[i, j, k] * gz[k] for k in range(6)) +
+    #                 sum(GC_m1[i, j, k] * gn[k] for k in range(6)) +
+    #                 sum(GC_p1[i, j, k] * gp[k] for k in range(6))
+    #             )
+    #             for j in range(nlm_len)
+    #         ]
+    #         for i in range(nlm_len)
+    #     ]
+    # )
+    M_LROT = -1.0*as_tensor(GC[i,j,k]*g0[k] + GCm[i,j,k]*gz[k] + GC_m1[i,j,k]*gn[k] + GC_p1[i,j,k]*gp[k],(i,j))
 
     return M_LROT
 
 def M_CDRX(Lmax):
 
     l,m = get_lm(Lmax)
-    Ldiag = l*(l+1)
+    Ldiag = -l*(l+1)
 
 
-    return ufl.diag(Ldiag)
+    return ufl.diag(as_vector(Ldiag))
 
 
 def M_REG(Lmax,C):
@@ -122,7 +136,7 @@ def M_REG(Lmax,C):
 
     ratemag = nu*ufl.sqrt(ufl.inner(C,C))
 
-    return ufl.diag(Reg_diag*ratemag)
+    return ufl.diag(as_vector(Reg_diag)*ratemag)
 
 
 def quad_rr(M):

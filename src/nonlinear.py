@@ -229,9 +229,9 @@ def nested_solve(F, J, u, p, bcs, P=None):
 
     ksp_u, ksp_p = snes.getKSP().getPC().getFieldSplitSubKSP()
     ksp_u.setType("preonly")
-    ksp_u.getPC().setType("hypre")
+    ksp_u.getPC().setType("gamg")
     ksp_p.setType("preonly")
-    ksp_p.getPC().setType("hypre")
+    ksp_p.getPC().setType("gamg")
 
     problem = NonlinearPDE_SNESProblem(F, J, [u, p], bcs=bcs, P=P)
     snes.setFunction(problem.F_nest, Fvec)

@@ -23,9 +23,9 @@ class Rheology:
             return self.B^(1/n)*η
         elif self.flowlaw == 'CAFFE':
             E = caffe.Enhancement(caffe.Deformability(a2, a4, ε), self.Emin, self.Emax)
-            return self.B**(1/n) * (ufl.inner(ε, ε) / 2 + eps)**((1 - n) / (2 * n)) * E**(-1/n)
+            return self.B**(1/n) * (ufl.tr(ufl.dot(ε, ε)) / 2 + eps)**((1 - n) / (2 * n)) * E**(-1/n)
         else:
-            return self.B**(1/n) * (ufl.inner(ε, ε) / 2 + eps)**((1 - n) / (2 * n))
+            return self.B**(1/n) * (ufl.tr(ufl.dot(ε, ε)) / 2 + eps)**((1 - n) / (2 * n))
 
     def με(self, ε, f):
         a2 = a2calc(f)

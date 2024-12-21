@@ -13,6 +13,7 @@ import numpy as np
 import boundaryconditions as bc
 
 
+
 L = 5e3 # length of 1 wavelength
 H = 1e3
 repetitions = 15
@@ -70,6 +71,13 @@ model.solve_stokes()
 utilities.write_xdmf("test.xdmf", msh, [model.u], "u")
 
 #%%
+
+
+from orientationtensors import a2calc
+
+a2 = a2calc(model.f)
+
+utilities.write_xdmf("a2.xdmf", msh, [a2], "a2")
 
 
 
