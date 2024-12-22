@@ -16,7 +16,7 @@ import boundaryconditions as bc
 
 L = 5e3 # length of 1 wavelength
 H = 1e3
-repetitions = 15
+repetitions = 8
 Lmax = 4
 
 nz = 10
@@ -57,9 +57,9 @@ warp_mesh(msh,top,bottom)
 
 
 
-par = params(dt = 1.0, surface_slope=0.5)
+par = params(dt = 15.0, surface_slope=0.5)
 rheo = flowlaws.Rheology()
-fab = fabric(4,0.3,1.0,0.0,0.0)
+fab = fabric(4,0.3,1.0,0.0,0.0, D = msh.geometry.dim)
 
 bc_u = lambda V: [bc.get_zero_bc(V, bottom_boundary, default_scalar_type)]
 bc_f = lambda V: []
@@ -71,13 +71,12 @@ model.solve_stokes()
 utilities.write_xdmf("test.xdmf", msh, [model.u], "u")
 
 #%%
-
-
-from orientationtensors import a2calc
-
-a2 = a2calc(model.f)
-
-utilities.write_xdmf("a2.xdmf", msh, [a2], "a2")
+import orientationtensors as ot
+for i in range(60):
+    model.solve_fabric_complex()
+    a2 = ot.a2calc(model.f)
+    utilities.write_xdmf("test" + str(i) + ".xdmf", 
+                         msh, [model.u, a2], ["u", "a2"], t=i)
 
 
 

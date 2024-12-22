@@ -8,8 +8,14 @@ GCm = ufl.as_tensor(gb.GCm[:,:,:6])
 GC_m1 = ufl.as_tensor(gb.GC_m1[:,:,:6])
 GC_p1 = ufl.as_tensor(gb.GC_p1[:,:,:6])
 
+def grad2dto3d(u):
+            gradu = ufl.grad(u)
+            return as_tensor([[gradu[0,0],gradu[0,1],0],
+                              [gradu[1,0],gradu[1,1],0],
+                              [0,0,0]])
+    
 class fabric:
-    def __init__(self,L,λ,αD,αS,β):
+    def __init__(self,L,λ,αD,αS,β, D=3):
         self.L = L
         self.λ = λ
         self.αD = αD
@@ -18,14 +24,18 @@ class fabric:
 
         self.nlm_len = nlm_len_from_L(L)
 
+        if D == 3:
+            self.grad3d = ufl.grad
+        elif D == 2:
+            self.grad3d = grad2dto3d
 
 
     
     def W(self,u):
-        return ufl.skew(ufl.grad(u))
+        return ufl.skew(self.grad3d(u))
     
     def D(self,u):
-        return ufl.sym(ufl.grad(u))
+        return ufl.sym(self.grad3d(u))
     
     def SR(self,u):
         return ufl.sqrt(0.5*ufl.inner(self.D(u),self.D(u)))
@@ -34,8 +44,12 @@ class fabric:
         return self.αD*self.D(u) + self.αS*rheo.τhat(self.D(u),f)
     
     def M(self,u,f,rheo):
+
+        M_lrot = M_LROT(self.L,self.C(u,f,rheo),self.W(u),1.0)
+        # M_reg = M_REG(self.L,self.C(u,f,rheo))
+        M_rrx = M_CDRX(self.L)
         
-        return makeM(self.W(u),self.C(u,f,rheo),self.SR(u),self.λ,self.L)
+        return M_lrot + self.λ*self.SR(u)*M_rrx #+ M_reg
     
 
     def f0(self,x):
@@ -54,6 +68,9 @@ def nlm_len_from_L(Lmax):
     return int(((Lmax+1)*(Lmax+2))/2)
 
 
+
+
+
 def get_lm(Lmax):
     l = []; m = []
     for ll in range(0,Lmax+1,2):
@@ -62,14 +79,6 @@ def get_lm(Lmax):
             m.append(mm)
     return np.array(l),np.array(m)
 
-
-def makeM(W,C,SR,λ,L):
-
-    M_lrot = M_LROT(L,C,W,1.0)
-    M_reg = M_REG(L,C)
-    M_rrx = M_CDRX(L)
-
-    return M_lrot + M_reg + λ*SR*M_rrx
 
 def M_LROT(Lmax,C,W,ι):
     
@@ -130,13 +139,15 @@ def M_REG(Lmax,C):
     nu = 1.9879322126397958
 
     l,m = get_lm(Lmax)
-    Ldiag = l*(l+1)
+    Ldiag = -l*(l+1)
 
-    Reg_diag = np.abs(Ldiag/(Lmax*(Lmax+1)))**expo
+    Reg_diag = abs(Ldiag/(Lmax*(Lmax+1)))**expo
 
-    ratemag = nu*ufl.sqrt(ufl.inner(C,C))
+    M = ufl.diag(as_vector(Reg_diag))
 
-    return ufl.diag(as_vector(Reg_diag)*ratemag)
+    ratemag = nu*ufl.sqrt(ufl.tr(ufl.dot(C,C)))
+
+    return -ratemag*M
 
 
 def quad_rr(M):

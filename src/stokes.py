@@ -1,6 +1,6 @@
 import dolfinx.nls.petsc
 import numpy as np
-from dolfinx import fem, default_real_type, default_scalar_type
+from dolfinx import fem, default_real_type, default_scalar_type, mesh
 import basix.ufl as bufl
 import ufl
 from mpi4py import MPI
@@ -14,13 +14,18 @@ def ε(u):
 
 
 class solver:
-    def __init__(self, msh, bc_funcs, params, rheo, fabric):
+    def __init__(self, msh, bc_funcs, params, rheo, fabric, top):
         self.msh = msh
         self.bc_funcs = bc_funcs
         self.params = params
         self.rheo = rheo
         self.fabric = fabric
         self.dt = params.dt
+
+        top_facets = mesh.locate_entities_boundary(msh, msh.topology.dim - 1, top)
+        mesh_tags = mesh.meshtags(msh, msh.topology.dim - 1, top_facets, 1)
+        self.ds = ufl.Measure("ds", domain=msh, subdomain_data=mesh_tags)
+
 
         
 
@@ -31,8 +36,10 @@ class solver:
         self.P1 = fem.functionspace(self.msh, P1_el)
 
         self.Z = fem.functionspace(msh, ("Lagrange", 1))
+        self.z = fem.Function(self.Z)
+        self.z.interpolate(lambda x: x[1])
 
-        self.bcs_u = bc_funcs[0](self.P2)
+        
 
         self.u = fem.Function(self.P2)
         self.p = fem.Function(self.P1)
@@ -48,7 +55,10 @@ class solver:
         self.f = fem.Function(self.F)
         self.f.interpolate(self.fabric.f0)
 
+
+        self.bcs_u = bc_funcs[0](self.P2)
         self.bcs_f = bc_funcs[1](self.F)
+        self.bc_z = bc_funcs[2](self.Z)
 
     def solve_stokes(self):
         du, dp = ufl.TrialFunction(self.P2), ufl.TrialFunction(self.P1)
@@ -88,61 +98,27 @@ class solver:
         self.u.x.scatter_forward()
         self.p.x.scatter_forward()
 
-
-    def solve_fabric_real(self, k = 1e-4):
-
-
-        (fr, fi) = ufl.TrialFunctions(self.F)
-        (gr, gi) = ufl.TestFunctions(self.F)
-
-        # M = self.fabric.M(self.u, self.f, self.rheo)
-        M = specfabufl.M_CDRX(4)
-        Mr = ufl.real(M); Mi = M
-
-        # rh = ufl.dot(M, fr)
-
-        a = ( ufl.inner(fr,gr) \
-            + self.dt*ufl.inner(ufl.dot(ufl.grad(fr), self.u), gr) \
-            + self.dt*k*ufl.inner(ufl.grad(fr), ufl.grad(gr)) \
-            - self.dt*ufl.inner(ufl.dot(Mr,fr) - ufl.dot(Mi,fi),gr)\
-            # - self.dt*ufl.inner(rh,gr)\
-                        )*ufl.dx
-        
-        a += ( ufl.inner(fi,gi) \
-              + self.dt*ufl.inner(ufl.dot(ufl.grad(fi), self.u), gi) \
-              + self.dt*k*ufl.inner(ufl.grad(fi), ufl.grad(gi)) \
-                # + self.dt*ufl.inner(ufl.dot(Mi,fr) + ufl.dot(Mr,fi),gi)  \
-                    )*ufl.dx
-        
-
-        L = (ufl.inner(self.fr,gr) + ufl.inner(self.fi,gi))*ufl.dx
-
-        problem = fem.petsc.LinearProblem(a, L, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
-
-        self.f = problem.solve()
-
     def solve_fabric_complex(self, k = 1e-4):
 
         f = ufl.TrialFunction(self.F)
         g = ufl.TestFunction(self.F)
 
-        # M = self.fabric.M(self.u, self.f, self.rheo)
-        M = specfabufl.M_LROT(4, ε(self.u), ufl.skew(ufl.grad(self.u)), 1.0)\
-            + 0.1*specfabufl.M_CDRX(4)
-        # M = specfabufl.M_CDRX(4)
+        M = self.fabric.M(self.u, self.f, self.rheo)
+        # M = specfabufl.M_LROT(4, ε(self.u), ufl.skew(ufl.grad(self.u)), 1.0)\
+        #     + 0.1*specfabufl.M_CDRX(4)
+        
 
-
-        # rh = ufl.dot(M, f)
+        rh = integrators.SSPRK43(
+            lambda f: ufl.dot(M, f), self.f, self.dt)
+        
 
         a = (ufl.inner(f, g) \
-            # + self.dt*ufl.inner(ufl.dot(ufl.grad(f), self.u), g) \
-            # + self.dt*k*ufl.inner(ufl.grad(f), ufl.grad(g)) \
+            + self.dt*ufl.inner(ufl.dot(ufl.grad(f), self.u), g) \
+            + self.dt*k*ufl.inner(ufl.grad(f), ufl.grad(g)) \
             # - self.dt*ufl.inner(ufl.dot(M, f), g)\
                         )*ufl.dx
         
-        L = (ufl.inner(integrators.ForwardEuler(M,self.f,self.dt), g) \
-            #  + self.dt*ufl.inner(ufl.dot(M,self.f),g)\
-                )*ufl.dx
+        L = ufl.inner(rh, g)*ufl.dx
 
         problem = fem.petsc.LinearProblem(a, L, bcs=[],petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
         self.f = problem.solve()
@@ -155,21 +131,31 @@ class solver:
         z = ufl.TrialFunction(self.Z)
         v = ufl.TestFunction(self.Z)
 
-        us = self.u[:D-1]; w = self.u[-1]
+        n = ufl.FacetNormal(self.msh)
 
-        grad_s = lambda u: ufl.as_vector([ufl.grad(u)[i] for i in range(D-1)])
+        w = ufl.dot(self.u, n)
+        us = self.u - w*n
 
-        ds = ufl.Measure("ds", domain=self.msh)
+        # grad_s = lambda u: ufl.grad(u)[0]
 
-        a = (ufl.inner(z, v) + self.dt*ufl.inner(us, grad_s(z)))*ds \
-            + k*ufl.inner(ufl.grad(z), ufl.grad(v))*ufl.dx
+        ds = self.ds(1)
+        
+        a = self.params.acc
+
+        rh = integrators.RK4(
+            lambda z: w + a - self.dt*ufl.dot(us, ufl.grad(z)),
+            self.z, self.dt)
+
+        a = ufl.inner(z,v)*ds +\
+              k*self.dt*ufl.inner(ufl.grad(z), ufl.grad(v))*ufl.dx
     
-        L = ufl.inner(self.dt*(w+self.params.acc), v)*ds
+        L = ufl.inner(rh,v)*ds
+# 
+        problem = fem.petsc.LinearProblem(a, L, bcs=self.bc_z, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
+        self.z = problem.solve()
 
-        problem = fem.LinearProblem(a, L, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
-        dz = problem.solve()
 
-        self.msh.geometry.x[:,D-1] += self.params.dt*dz.x.array
+        # self.msh.geometry.x[:,D-1] += self.params.dt*dz.x.array
 
 
 

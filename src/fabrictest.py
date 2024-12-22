@@ -33,7 +33,7 @@ def u_soln(x):
 
 par = params(dt = 1.0, surface_slope=0.5)
 rheo = flowlaws.Rheology()
-fab = fabric(4,0.0,1.0,0.0,0.0)
+fab = fabric(4,0.2,1.0,0.0,0.0)
 
 bc_u = lambda V: []
 bc_f = lambda V: []
@@ -43,11 +43,12 @@ model = stokes.solver(msh, [bc_u,bc_f], par, rheo, fab)
 model.u.interpolate(u_soln)
 
 
-for i in range(10):
+for i in range(50):
     model.solve_fabric_complex()
     a2 = ot.a2calc(model.f)
     utilities.write_xdmf("test" + str(i) + ".xdmf", 
-                         msh, [model.u, a2], ["u", "a2"], t=i)
+                         msh, [model.u, a2, model.fabric.SR(model.u)],
+                           ["u", "a2", "SR"], t=i)
 
 
 
