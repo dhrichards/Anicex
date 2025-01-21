@@ -14,12 +14,14 @@ import boundaryconditions as bc
 
 
 
-L = 300e3 # length of 1 wavelength
+L = 400e3 # length of 1 wavelength
+Ly = 100e3
+wavelength = 100e3
 H = 1e3
-Lmax = 4
 
-nz = 15
-nx = 300
+nz = 6
+ny = 15
+nx = 80
 
 a0 = 100
 σ = 10e3
@@ -34,10 +36,13 @@ def top(x):
     return 0.0
 
 def bottom(x, y=0.0):
-    return -H +  a0*np.exp(-(x**2 + y**2)/(σ**2))
+    return -H +  a0*np.exp(-(x**2 + y**2)/(σ**2))\
+        + a0*np.exp(-((x-wavelength)**2 + y**2)/(σ**2)) \
+        + a0*np.exp(-((x+wavelength)**2 + y**2)/(σ**2)) 
+
 
 def bottom_boundary(x):
-    r = -x[1] + bottom(x[0])
+    r = -x[-1] + bottom(x[0],x[1])
     return np.isclose(r,0.0)
 
 def left_boundary(x):
@@ -46,49 +51,37 @@ def left_boundary(x):
 def right_boundary(x):
     return np.isclose(x[0],L//2)
 
+def front_boundary(x):
+    return np.isclose(x[1],-Ly//2)
+
+def back_boundary(x):
+    return np.isclose(x[1],Ly//2)
+
 def top_boundary(x):
-    return np.isclose(x[1],0.0)
-
-if D == 2:
-    msh = mesh.create_rectangle(MPI.COMM_WORLD,
-                            [np.array([-1, 0]), np.array([1, 1])],
-                            [nx,nz], mesh.CellType.triangle)
-elif D == 3:
-    msh = mesh.create_box(MPI.COMM_WORLD,
-                        [np.array([-1, -1, 0]), np.array([1, 1, 1])],
-                        [nx, nz, nz], mesh.CellType.tetrahedron)
+    return np.isclose(x[-1],0.0)
 
 
-# refine mesh
-# x = msh.geometry.x[:,0]
-# x[x<0] = -np.abs(x[x<0])**1.8
-# x[x>0] = x[x>0]**1.8
-# msh.geometry.x[:,0] = x
+msh = mesh.create_box(MPI.COMM_WORLD,
+                    [np.array([-1, -1, 0]), np.array([1, 1, 1])],
+                    [nx, ny, nz], mesh.CellType.tetrahedron)
 
-# msh.geometry.x[:,0] = msh.geometry.x[:,:D-2]*L/2
-msh.geometry.x[:,:D-1] = msh.geometry.x[:,:D-1]*H
+
+msh.geometry.x[:,0] = msh.geometry.x[:,0]*L/2
+msh.geometry.x[:,1] = msh.geometry.x[:,1]*Ly/2
 
 
 
 
 def warp_mesh(msh,top,bot):
-    if D ==2:
-        x = msh.geometry.x[:,0]
-        z = msh.geometry.x[:,1]
-        zs = top(x)
-        zb = bot(x)
-        znew = zb + z*(zs-zb)
-        xynewcoor = np.array([x, znew]).transpose()
-        msh.geometry.x[:,:2] = xynewcoor
-    elif D == 3:
-        x = msh.geometry.x[:,0]
-        y = msh.geometry.x[:,1]
-        z = msh.geometry.x[:,2]
-        zs = top(x)
-        zb = bot(x,y)
-        znew = zb + z*(zs-zb)
-        xynewcoor = np.array([x, y, znew]).transpose()
-        msh.geometry.x[:,:3] = xynewcoor
+    x = msh.geometry.x[:,0]
+    y = msh.geometry.x[:,1]
+    z = msh.geometry.x[:,2]
+    zs = top(x)
+    zb = bot(x,y)
+    znew = zb + z*(zs-zb)
+    xynewcoor = np.array([x, y, znew]).transpose()
+    msh.geometry.x[:,:3] = xynewcoor
+
 
 
 
@@ -97,15 +90,11 @@ warp_mesh(msh,top,bottom)
 
 
 
-if D == 2:
-    def u_bc(x):
-        return np.stack([-Uin*(x[1,:]/H)**2 + Uin, np.zeros(x.shape[1])])
-elif D == 3:
-    def u_bc(x):
-        return np.stack([-Uin*(x[2,:]/H)**2 + Uin, np.zeros(x.shape[1]), np.zeros(x.shape[1])])
+def u_bc(x):
+    return np.stack([-Uin*(x[2,:]/H)**2 + Uin, np.zeros(x.shape[1]), np.zeros(x.shape[1])])
 
 
-par = params(dt = 0.3, surface_slope=surface_slope)
+par = params(dt = 0.4, surface_slope=surface_slope)
 rheo = flowlaws.Rheology(flowlaw='Glen', B=A, n=n)
 fab = fabric(4,0.3,1.0,0.0,0.0, D = msh.geometry.dim)
 
@@ -113,16 +102,19 @@ fab = fabric(4,0.3,1.0,0.0,0.0, D = msh.geometry.dim)
 facets = mesh.locate_entities_boundary(msh, 1, left_boundary)
 bc_u = lambda V: [bc.get_zero_bc(V, bottom_boundary),
                   bc.get_bc_func(V, right_boundary, u_bc),
-                  bc.get_bc_func(V, left_boundary, u_bc)]
+                  bc.get_bc_func(V, left_boundary, u_bc),
+                  bc.get_zero_bc(V.sub(1), front_boundary),
+                  bc.get_zero_bc(V.sub(1), back_boundary)]
+
 bc_f = lambda V: []
-bc_z = lambda V: [bc.get_bc_func(V, left_boundary, lambda x: x[1]),
-                    bc.get_bc_func(V, right_boundary, lambda x: x[1]),
-                    bc.get_bc_func(V, bottom_boundary, lambda x: bottom(x[0]))]
+bc_z = lambda V: [bc.get_bc_func(V, bottom_boundary, lambda x: bottom(x[0],x[1]))]
 
 
 
 model = stokes.solver(msh, [bc_u,bc_f,bc_z], par, rheo, fab, top_boundary)
 
+
+model.setup_stokes(FSSA=True)
 # model.solve_stokes(FSSA=True)
 # model.move_mesh()
 
@@ -130,19 +122,20 @@ model = stokes.solver(msh, [bc_u,bc_f,bc_z], par, rheo, fab, top_boundary)
 
 
 #%%
-import orientationtensors as ot
-for i in range(300):
+for i in range(5):
     if MPI.COMM_WORLD.rank == 0:
         print(i)
-    model.solve_stokes(FSSA=True)
-    # model.solve_fabric_complex()
+    model.solve_stokes()
+
+    model.msh.geometry.x[:,model.msh.geometry.dim-1] = model.z_original.x.array.real
+    utilities.write_file("outputs/expF3D" + str(i) + ".xdmf", 
+                         msh, [model.u, model.z], ["u", "z"], t=i)
+    model.msh.geometry.x[:,model.msh.geometry.dim-1] = model.z.x.array.real
+
     model.move_mesh()
     # a2 = ot.a2calc(model.f)
 
-    model.msh.geometry.x[:,model.msh.geometry.dim-1] = model.z_original.x.array.real
-    utilities.write_file("outputs/testF" + str(i) + ".xdmf", 
-                         msh, [model.u, model.z], ["u", "z"], t=i)
-    model.msh.geometry.x[:,model.msh.geometry.dim-1] = model.z.x.array.real
+  
 
 
 
