@@ -32,9 +32,18 @@ def bottom_boundary(x):
     r = -x[1] + bottom(x[0])
     return np.isclose(r,0.0)
 
+def left_boundary(x):
+    return np.isclose(x[0],-L*repetitions//2)
+
+def right_boundary(x):
+    return np.isclose(x[0],L*repetitions//2)
+
+def top_boundary(x):
+    return np.isclose(x[1],H)
+
 
 msh = mesh.create_rectangle(MPI.COMM_WORLD,
-                            [np.array([0, 0]), np.array([L*repetitions, 1])],
+                            [np.array([-L*repetitions//2, 0]), np.array([L*repetitions//2, 1])],
                             [nx,nz], mesh.CellType.quadrilateral)
 
 
@@ -57,23 +66,28 @@ warp_mesh(msh,top,bottom)
 
 
 
-par = params(dt = 15.0, surface_slope=0.5)
-rheo = flowlaws.Rheology()
+par = params(dt = 5.0, surface_slope=0.5)
+rheo = flowlaws.Rheology(flowlaw='Sachs')
 fab = fabric(4,0.3,1.0,0.0,0.0, D = msh.geometry.dim)
 
-bc_u = lambda V: [bc.get_zero_bc(V, bottom_boundary, default_scalar_type)]
+bc_u = lambda V: [bc.get_zero_bc(V, bottom_boundary),
+                  bc.get_zero_bc(V, left_boundary),
+                  bc.get_zero_bc(V, right_boundary)]
 bc_f = lambda V: []
+bc_z = lambda V: []
 
-model = stokes.solver(msh, [bc_u,bc_f], par, rheo, fab)
+model = stokes.solver(msh, [bc_u,bc_f,bc_z], par, rheo, fab, top_boundary)
 
-model.solve_stokes()
+# model.solve_stokes()
 
-utilities.write_xdmf("test.xdmf", msh, [model.u], "u")
+# utilities.write_xdmf("test.xdmf", msh, [model.u], "u")
 
 #%%
 import orientationtensors as ot
-for i in range(60):
+for i in range(200):
+    model.solve_stokes()
     model.solve_fabric_complex()
+    # model.move_mesh()
     a2 = ot.a2calc(model.f)
     utilities.write_xdmf("test" + str(i) + ".xdmf", 
                          msh, [model.u, a2], ["u", "a2"], t=i)

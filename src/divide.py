@@ -11,6 +11,7 @@ from specfabufl import fabric
 import utilities
 import numpy as np  
 import boundaryconditions as bc
+import orientationtensors as ot
 
 
 
@@ -45,7 +46,7 @@ msh = mesh.create_rectangle(MPI.COMM_WORLD,
 
 
 
-par = params(dt = 0.001, surface_slope=0.0)
+par = params(dt = 0.000001, surface_slope=0.0)
 rheo = flowlaws.Rheology(flowlaw='Glen')
 fab = fabric(4,0.3,1.0,0.0,0.0, D = msh.geometry.dim)
 
@@ -55,9 +56,13 @@ bc_f = lambda V: []
 bc_z = lambda V: [bc.get_zero_bc(V, bottom_boundary)]
 model = stokes.solver(msh, [bc_u,bc_f,bc_z], par, rheo, fab, top_boundary)
 
-model.solve_stokes()
 
-model.move_mesh()
+for i in range(10):
 
-utilities.write_xdmf("test.xdmf", msh, [model.u, model.z], ["u", "z"], t=0)
+    model.solve_stokes()
+    # model.solve_fabric_complex()
+    model.move_mesh()
+
+    utilities.write_xdmf("outpus/divide" + str(i) + ".xdmf", msh,
+     [model.u, model.z], ["u", "z"], t=i)
 

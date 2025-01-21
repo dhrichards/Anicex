@@ -31,7 +31,7 @@ def get_bc_func(V,boundary,bc_expr):
     boundary_dofs_x = get_boundary_dofs(V,boundary)
     bc_val = fem.Function(V)
     bc_val.interpolate(bc_expr)
-    return lambda V: get_bc(V,boundary,bc_val)
+    return fem.dirichletbc(bc_val, boundary_dofs_x)
 
 
 
