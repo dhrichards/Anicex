@@ -26,11 +26,13 @@ def sachs_fluidity(a2,a4,Ecc,Eca):
     D = a2.ufl_shape[0]
 
     I = ufl.Identity(D)
+    I4 = ufl.as_tensor(0.5*(I[i,k]*I[j,l] + I[i,l]*I[j,k]), (i,j,k,l))
     
     # check anticommuter
-    F = ufl.as_tensor((I[i,k]*I[j,l] + p2*a4[i,j,k,l] \
-            + 0.5*p3*(I[i,k]*a2[j,l] + a2[i,k]*I[j,l] + ...)
-            + p1*I[i,j]*a2[k,l]), (i,j,k,l) )
+    F = ufl.as_tensor((I4[i,j,k,l] + p2*a4[i,j,k,l] \
+            + 0.5*p3*(a2[i,k]*I[j,l] + a2[i,l]*I[j,k] \
+                      + I[i,k]*a2[l,j] + I[i,l]*a2[k,j])\
+            + p1*I[i,j]*a2[k,l] ), (i,j,k,l) )
     
     return F/(0.4*Eca + 0.2*Ecc + 0.4)
 

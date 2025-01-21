@@ -91,7 +91,7 @@ def mandel2tensor(M):
                 if j >= D:
                     factor *= sqrt(2)
 
-                value = M[i][j] / factor
+                value = M[i,j] / factor
 
                 # Directly write to all symmetric entries
                 tensor[idx1[0]][idx1[1]][idx2[0]][idx2[1]] = value
