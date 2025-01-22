@@ -19,9 +19,9 @@ Ly = 100e3
 wavelength = 100e3
 H = 1e3
 
-nz = 8
-ny = 20
-nx = 120
+nz = 10
+ny = 25
+nx = 160
 
 a0 = 100
 σ = 10e3
