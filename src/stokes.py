@@ -8,8 +8,9 @@ from petsc4py import PETSc
 import nonlinear
 import specfabufl
 import integrators
-import dolfinx_mpc
-import nonlinear_mpc
+
+# import dolfinx_mpc
+# import nonlinear_mpc
 
 
 def ε(u):
@@ -124,65 +125,65 @@ class solver:
         self.u.x.scatter_forward()
         self.p.x.scatter_forward()
 
-    def setup_stokes_linear(self, periodic_boundary, periodic_relation):
+    # def setup_stokes_linear(self, periodic_boundary, periodic_relation):
 
         
 
-        self.mpc_u = dolfinx_mpc.MultiPointConstraint(self.P2)
-        self.mpc_u.create_periodic_constraint_geometrical(
-            self.P2, periodic_boundary, periodic_relation, self.bcs_u)
-        self.mpc_u.finalize()
-        self.mpc_p = dolfinx_mpc.MultiPointConstraint(self.P1)
-        self.mpc_p.finalize()
+    #     self.mpc_u = dolfinx_mpc.MultiPointConstraint(self.P2)
+    #     self.mpc_u.create_periodic_constraint_geometrical(
+    #         self.P2, periodic_boundary, periodic_relation, self.bcs_u)
+    #     self.mpc_u.finalize()
+    #     self.mpc_p = dolfinx_mpc.MultiPointConstraint(self.P1)
+    #     self.mpc_p.finalize()
 
-        self.u = fem.Function(self.mpc_u.function_space)
-        self.p = fem.Function(self.mpc_p.function_space)
+    #     self.u = fem.Function(self.mpc_u.function_space)
+    #     self.p = fem.Function(self.mpc_p.function_space)
 
-    def solve_stokes_linear(self):
+    # def solve_stokes_linear(self):
 
-        if self.msh.geometry.dim ==2:
-            f = fem.Constant(self.msh, default_scalar_type((
-            self.params.ρ*self.params.g*ufl.sin(np.deg2rad(self.params.slope)),
-            -self.params.ρ*self.params.g*ufl.cos(np.deg2rad(self.params.slope)))))
-        else:
-            f = fem.Constant(self.msh, default_scalar_type((
-            self.params.ρ*self.params.g*ufl.sin(np.deg2rad(self.params.slope)),
-            0.0,
-            -self.params.ρ*self.params.g*ufl.cos(np.deg2rad(self.params.slope)))))
+    #     if self.msh.geometry.dim ==2:
+    #         f = fem.Constant(self.msh, default_scalar_type((
+    #         self.params.ρ*self.params.g*ufl.sin(np.deg2rad(self.params.slope)),
+    #         -self.params.ρ*self.params.g*ufl.cos(np.deg2rad(self.params.slope)))))
+    #     else:
+    #         f = fem.Constant(self.msh, default_scalar_type((
+    #         self.params.ρ*self.params.g*ufl.sin(np.deg2rad(self.params.slope)),
+    #         0.0,
+    #         -self.params.ρ*self.params.g*ufl.cos(np.deg2rad(self.params.slope)))))
         
 
-        (u, p) = ufl.TrialFunction(self.P2), ufl.TrialFunction(self.P1)
-        (v, q) = ufl.TestFunction(self.P2), ufl.TestFunction(self.P1)
+    #     (u, p) = ufl.TrialFunction(self.P2), ufl.TrialFunction(self.P1)
+    #     (v, q) = ufl.TestFunction(self.P2), ufl.TestFunction(self.P1)
 
-        a00 = 2*self.rheo.B*ufl.inner(ε(u), ε(v))*ufl.dx
-        a01 = -ufl.inner(p, ufl.div(v))*ufl.dx
-        a10 = -ufl.inner(ufl.div(u), q) * ufl.dx
-        a11 = None
+    #     a00 = 2*self.rheo.B*ufl.inner(ε(u), ε(v))*ufl.dx
+    #     a01 = -ufl.inner(p, ufl.div(v))*ufl.dx
+    #     a10 = -ufl.inner(ufl.div(u), q) * ufl.dx
+    #     a11 = None
 
-        L0 = ufl.inner(f, v) * ufl.dx
-        L1 = ufl.inner(dolfinx.fem.Constant(self.msh, default_scalar_type(0.0)), q) * ufl.dx
+    #     L0 = ufl.inner(f, v) * ufl.dx
+    #     L1 = ufl.inner(dolfinx.fem.Constant(self.msh, default_scalar_type(0.0)), q) * ufl.dx
 
-        a = [[dolfinx.fem.form(a00), dolfinx.fem.form(a01)], [dolfinx.fem.form(a10), dolfinx.fem.form(a11)]]
-        L = [dolfinx.fem.form(L0), dolfinx.fem.form(L1)]
+    #     a = [[dolfinx.fem.form(a00), dolfinx.fem.form(a01)], [dolfinx.fem.form(a10), dolfinx.fem.form(a11)]]
+    #     L = [dolfinx.fem.form(L0), dolfinx.fem.form(L1)]
 
-        P = dolfinx.fem.form(p * q * ufl.dx)
+    #     P = dolfinx.fem.form(p * q * ufl.dx)
 
-        self.ksp, self.x, self.b = nonlinear_mpc.linear_nested_solver(
-            a, L, self.bcs_u, P, self.mpc_u, self.mpc_p)
+    #     self.ksp, self.x, self.b = nonlinear_mpc.linear_nested_solver(
+    #         a, L, self.bcs_u, P, self.mpc_u, self.mpc_p)
         
     
-    # def solve_stokes_linear(self):
-        self.ksp.solve(self.b, self.x)
-        assert self.ksp.getConvergedReason() > 0
+    # # def solve_stokes_linear(self):
+    #     self.ksp.solve(self.b, self.x)
+    #     assert self.ksp.getConvergedReason() > 0
 
-        self.u.x.petsc_vec.setArray(self.x.getNestSubVecs()[0].array)
-        self.p.x.petsc_vec.setArray(self.x.getNestSubVecs()[1].array)
+    #     self.u.x.petsc_vec.setArray(self.x.getNestSubVecs()[0].array)
+    #     self.p.x.petsc_vec.setArray(self.x.getNestSubVecs()[1].array)
 
-        self.u.x.scatter_forward()
-        self.p.x.scatter_forward()
+    #     self.u.x.scatter_forward()
+    #     self.p.x.scatter_forward()
 
-        self.mpc_u.backsubstitution(self.u)
-        self.mpc_p.backsubstitution(self.p)
+    #     self.mpc_u.backsubstitution(self.u)
+    #     self.mpc_p.backsubstitution(self.p)
     
 
 
