@@ -19,9 +19,9 @@ Ly = 100e3
 wavelength = 100e3
 H = 1e3
 
-nz = 6
-ny = 15
-nx = 80
+nz = 8
+ny = 20
+nx = 120
 
 a0 = 100
 σ = 10e3
@@ -122,7 +122,7 @@ model.setup_stokes(FSSA=True)
 
 
 #%%
-for i in range(5):
+for i in range(500):
     if MPI.COMM_WORLD.rank == 0:
         print(i)
     model.solve_stokes()
